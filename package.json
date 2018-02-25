@@ -1,0 +1,26 @@
+{
+  "name": "playlist",
+  "version": "1.0.0",
+  "description": "Kiss playlist grabber",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node index.js"
+  },
+  "author": "",
+  "license": "ISC",
+  "repository": "https://github.com/mival/kissjsplaylist.git",
+  "dependencies": {
+    "buffer": "^5.1.0",
+    "cheerio": "^1.0.0-rc.2",
+    "express": "^4.16.2",
+    "node-fetch": "^2.0.0",
+    "request": "^2.83.0",
+    "request-promise": "^4.2.2",
+    "rsvp": "^4.8.1",
+    "spotify-web-api-node": "^2.5.0"
+  },
+  "devDependencies": {
+    "dotenv": "^5.0.0"
+  }
+}
