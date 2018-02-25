@@ -100,12 +100,15 @@ app.get('/spotify', (req, res) => {
       console.log('search count', items.length);
       const trackIds = [];
       const queue = new PQueue({concurrency: 1});
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.write('<table><thead><tr><th>Artist</th><th>Name</th><tr></thead><tbody>');
       items.forEach(item => {
         console.log('processing', item);
         queue.add(() => {
           return search(item).then(trackItem => {
             trackIds.push(trackItem.uri);
             console.log('completed', item);
+            res.write(`<tr><td>${item.author}</td><td>${item.name}</td></tr>`);
           }, e => {
             console.error('queue item error', e);
             res.status(500).send(e);
@@ -126,7 +129,8 @@ app.get('/spotify', (req, res) => {
         });
         queue.onIdle().then(() => {
           console.log('success');
-          res.status(204).send();
+          res.write('</tbody></table>');
+          res.end();
         }, e => {
           console.error('queue error', e);
           res.status(500).send(e);
