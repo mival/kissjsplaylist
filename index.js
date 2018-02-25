@@ -119,14 +119,21 @@ app.get('/spotify', (req, res) => {
         console.log('All work is done');
         const tracks = trackIds.filter(function(n){ return n != undefined });
         const queue = new PQueue({concurrency: 1});
-        chunks(tracks, 50).forEach(chunk => {
-          queue.add(() => spotifyApi.addTracksToPlaylist('mival1234', '3ca9AxafpbLDOqhnvvDIkf', chunk).then(() => {
-            console.log('success added track chunk');
-          }, e => {
-            console.error('search error', e);
-            res.status(500).send(e);
-          }));
+        const timeNow = new Date();
+
+        spotifyApi.createPlaylist('mival1234', `KissJC ${timeNow.getFullYear()}-${timeNow.getMonth()+1}-${timeNow.getDate()}`, { 'public' : false }).then(data => {
+          const playlistId = data.body.id;
+          console.log('new playlist', playlistId);
+          chunks(tracks, 50).forEach(chunk => {
+            queue.add(() => spotifyApi.addTracksToPlaylist('mival1234', playlistId, chunk).then(() => {
+              console.log('success added track chunk');
+            }, e => {
+              console.error('search error', e);
+              res.status(500).send(e);
+            }));
+          });
         });
+
         queue.onIdle().then(() => {
           console.log('success');
           res.write('</tbody></table>');
