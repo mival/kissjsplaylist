@@ -6,15 +6,19 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const fetch = require('node-fetch');
 const RSVP = require('rsvp');
 const cheerio = require('cheerio');
-const rp = require('request-promise');
 const SpotifyWebApi = require('spotify-web-api-node');
+const PQueue = require('p-queue');
+
 global.Buffer = global.Buffer || require('buffer').Buffer;
 const sanityRegex = /[&']/g;
+
+const scopes = ['playlist-modify-private'];
 
 const spotifyApi = new SpotifyWebApi({
   clientId : CLIENT_ID,
   clientSecret : CLIENT_SECRET,
-  redirectUri : 'https://kissjc-playlist.herokuapp.com/callback'
+  // redirectUri : 'https://kissjc-playlist.herokuapp.com/spotify',
+  redirectUri : 'http://192.168.0.198:5000/spotify',
 });
 
 const search = item => {
@@ -28,25 +32,6 @@ const search = item => {
     }
     return item;
   });
-};
-
-const authorize = () => {
-  const options = {
-    method: 'POST',
-    url: 'https://accounts.spotify.com/api/token',
-    headers:
-    {
-      'Cache-Control': 'no-cache',
-      'Authorization': `Basic ${Buffer.from(`${CLIENT_ID}:${CLIENT_SECRET}`, 'binary').toString('base64')}`,
-      Accept: 'application/json',
-      'Content-Type': 'application/x-www-form-urlencoded' },
-    form: { grant_type: 'client_credentials' }
-  };
-
-  return rp(options).then(data => {
-    return JSON.parse(data).access_token;
-  });
-
 };
 
 const loadPlaylist = () => {
@@ -63,27 +48,17 @@ const loadPlaylist = () => {
     });
 };
 
-// const run = () => {
-//   return new RSVP.Promise(resolve => {
-//     loadPlaylist().then(items => {
-//       items = (items.slice(0,2));
-//       authorize().then(token => {
-//         spotifyApi.setAccessToken(token);
-//         RSVP.all(items.map(item => search(item))).then(data => {
-//           console.log(data);
-//           console.log(data.map(item => item.uri))
-//     //       spotifyApi.addTracksToPlaylist('mival1234', '3ca9AxafpbLDOqhnvvDIkf', ["spotify:track:4iV5W9uYEdYUVa79Axb7Rh", "spotify:track:1301WleyT98MSxVHPZCA6M"]).then(data=>{
-//     //         console.log(data);
-//     //       }, e => {
-//     // console.error(e);
-//     //       })
-//     resolve(data);
-//         })
-//       });
-//     });
-//   });
-// }
+const checkLogin = () => {
+  return !!spotifyApi.getAccessToken();
+};
 
+const chunks = (array, size) => {
+  var results = [];
+  while (array.length) {
+    results.push(array.splice(0, size));
+  }
+  return results;
+};
 
 const express = require('express');
 const app = express();
@@ -91,24 +66,96 @@ const app = express();
 
 app.get('/', (req, res) => {
   loadPlaylist().then(data => {
+    console.log('count', data.length);
     res.status(200).json(data);
+  }, e => {
+    res.status(500).render(e);
   });
 });
 
+
+app.get('/login', (req, res) => {
+  res.redirect(spotifyApi.createAuthorizeURL(scopes, 'login-state'));
+});
+
 app.get('/spotify', (req, res) => {
-  let limit = req.query.limit || 3;
-  if (limit > 10) {
-    limit = 10;
+  const token = req.query.code;
+  if (!checkLogin() && !token) {
+   res.redirect('/login');
+   return;
   }
 
-  loadPlaylist().then(items => {
-    items = items.slice(0, limit);
-    authorize().then(token => {
-      spotifyApi.setAccessToken(token);
-      RSVP.all(items.map(item => search(item))).then(data => {
-        res.status(200).json(data);
+  spotifyApi.authorizationCodeGrant(token).then(data => {
+    console.log('The token expires in ' + data.body['expires_in']);
+    console.log('The access token is ' + data.body['access_token']);
+    console.log('The refresh token is ' + data.body['refresh_token']);
+
+    // Set the access token on the API object to use it in later calls
+    spotifyApi.setAccessToken(data.body['access_token']);
+    spotifyApi.setRefreshToken(data.body['refresh_token']);
+
+
+
+    loadPlaylist().then(items => {
+      console.log('search count', items.length);
+      const trackIds = [];
+      const queue = new PQueue({concurrency: 1});
+      items.forEach(item => {
+        console.log('processing', item);
+        queue.add(() => {
+          return search(item).then(trackItem => {
+            trackIds.push(trackItem.uri);
+            console.log('completed', item);
+          }, e => {
+            console.error('queue item error', e);
+            res.status(500).send(e);
+          });
+        });
       });
+      queue.onIdle().then(() => {
+        console.log('All work is done');
+        const tracks = trackIds.filter(function(n){ return n != undefined });
+        const queue = new PQueue({concurrency: 1});
+        chunks(tracks, 50).forEach(chunk => {
+          queue.add(() => spotifyApi.addTracksToPlaylist('mival1234', '3ca9AxafpbLDOqhnvvDIkf', chunk).then(() => {
+            console.log('success added track chunk');
+          }, e => {
+            console.error('search error', e);
+            res.status(500).send(e);
+          }));
+        });
+        queue.onIdle().then(() => {
+          console.log('success');
+          res.status(204).send();
+        }, e => {
+          console.error('queue error', e);
+          res.status(500).send(e);
+        });
+
+      }, e => {
+        console.error('queue error', e);
+        res.status(500).send(e);
+      });
+    }, e => {
+      console.error('playlist error', e);
+      res.status(500).send(e);
     });
+
+
+      // RSVP.all(items.map(item => )).then(data => {
+
+      // }, e => {
+      //   console.error('search error', e);
+      //   res.status(500).send(e);
+      // });
+    // }, e => {
+    //   console.error('load error', e);
+    //   res.status(500).send(e);
+    // });
+
+  }, e => {
+    console.error('login error', e);
+    res.status(500).send(e);
   });
 });
 

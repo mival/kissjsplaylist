@@ -13,12 +13,11 @@
   "dependencies": {
     "buffer": "^5.1.0",
     "cheerio": "^1.0.0-rc.2",
+    "dotenv": "^5.0.0",
     "express": "^4.16.2",
     "node-fetch": "^2.0.0",
-    "request": "^2.83.0",
-    "request-promise": "^4.2.2",
+    "p-queue": "^2.3.0",
     "rsvp": "^4.8.1",
-    "spotify-web-api-node": "^2.5.0",
-    "dotenv": "^5.0.0"
+    "spotify-web-api-node": "^2.5.0"
   }
 }
