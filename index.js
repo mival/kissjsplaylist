@@ -35,7 +35,7 @@ const search = item => {
 };
 
 const loadPlaylist = () => {
-  return fetch('https://www.kiss.cz/playlist/dnes.html').then(res => res.text())
+  return fetch('https://www.kiss.cz/playlist/vcera.html').then(res => res.text())
     .then(body => {
       const $ = cheerio.load(body);
       // <span class="eventEvent pull-left"> <span>BOB SINCLAIR &amp; GARRY PINE</span> LOVE GENERATION </span>
@@ -120,8 +120,9 @@ app.get('/spotify', (req, res) => {
         const tracks = trackIds.filter(function(n){ return n != undefined });
         const queue = new PQueue({concurrency: 1});
         const timeNow = new Date();
+        const yesterday = timeNow.setDate(timeNow.getDate() - 1);
 
-        spotifyApi.createPlaylist('mival1234', `KissJC ${timeNow.getFullYear()}-${timeNow.getMonth()+1}-${timeNow.getDate()}`, { 'public' : false }).then(data => {
+        spotifyApi.createPlaylist('mival1234', `KissJC ${yesterday.getFullYear()}-${yesterday.getMonth()+1}-${yesterday.getDate()}`, { 'public' : false }).then(data => {
           const playlistId = data.body.id;
           console.log('new playlist', playlistId);
           chunks(tracks, 50).forEach(chunk => {
