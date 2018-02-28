@@ -120,7 +120,7 @@ app.get('/spotify', (req, res) => {
         const tracks = trackIds.filter(function(n){ return n != undefined });
         const queue = new PQueue({concurrency: 1});
         const timeNow = new Date();
-        const yesterday = timeNow.setDate(timeNow.getDate() - 1);
+        const yesterday = new Date(timeNow.setDate(timeNow.getDate() - 1));
 
         spotifyApi.createPlaylist('mival1234', `KissJC ${yesterday.getFullYear()}-${yesterday.getMonth()+1}-${yesterday.getDate()}`, { 'public' : false }).then(data => {
           const playlistId = data.body.id;
