@@ -42,7 +42,7 @@ const loadPlaylist = () => {
       const data = [];
       $('.event_widget .eventEvent').each((index, item) => {
         const arr =  $(item).text().replace(/^\s+|\s+$/gm,'').split('\n');
-        data.push({index, author: arr[0].toLowerCase(), name: arr[1].toLowerCase()});
+        data.push({index, author: (arr[0] || "").toLowerCase(), name: (arr[1] || "").toLowerCase()});
       });
       return data;
     });
