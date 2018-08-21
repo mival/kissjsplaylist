@@ -18,6 +18,6 @@
     "node-fetch": "^2.0.0",
     "p-queue": "^2.3.0",
     "rsvp": "^4.8.1",
-    "spotify-web-api-node": "^2.5.0"
+    "spotify-web-api-node": "git+https://github.com/thelinmichael/spotify-web-api-node.git"
   }
 }
