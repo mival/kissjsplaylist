@@ -7,7 +7,7 @@ const fetch = require('node-fetch');
 const RSVP = require('rsvp');
 const cheerio = require('cheerio');
 const SpotifyWebApi = require('spotify-web-api-node');
-const PQueue = require('p-queue');
+const {default: PQueue} = require('p-queue');
 
 global.Buffer = global.Buffer || require('buffer').Buffer;
 const sanityRegex = /[&']/g;
@@ -18,7 +18,7 @@ const spotifyApi = new SpotifyWebApi({
   clientId : CLIENT_ID,
   clientSecret : CLIENT_SECRET,
   redirectUri : 'https://kissjc-playlist.herokuapp.com/spotify',
-  // redirectUri : 'http://192.168.0.198:5000/spotify',
+  // redirectUri : 'http://localhost:5000/spotify',
 });
 
 const search = item => {
