@@ -17,8 +17,8 @@ const scopes = ['playlist-modify-private'];
 const spotifyApi = new SpotifyWebApi({
   clientId : CLIENT_ID,
   clientSecret : CLIENT_SECRET,
-  redirectUri : 'https://kissjc-playlist.herokuapp.com/spotify',
-  // redirectUri : 'http://localhost:5000/spotify',
+  // redirectUri : 'https://kissjc-playlist.herokuapp.com/spotify',
+  redirectUri : 'http://localhost:5000/spotify',
 });
 
 const search = item => {
@@ -122,11 +122,11 @@ app.get('/spotify', (req, res) => {
         const timeNow = new Date();
         const yesterday = new Date(timeNow.setDate(timeNow.getDate() - 1));
 
-        spotifyApi.createPlaylist('mival1234', `KissJC ${yesterday.getFullYear()}-${yesterday.getMonth()+1}-${yesterday.getDate()}`, { 'public' : false }).then(data => {
+        spotifyApi.createPlaylist(`KissJC ${yesterday.getFullYear()}-${yesterday.getMonth()+1}-${yesterday.getDate()}`, { 'public' : false }).then(data => {
           const playlistId = data.body.id;
           console.log('new playlist', playlistId);
           chunks(tracks, 50).forEach(chunk => {
-            queue.add(() => spotifyApi.addTracksToPlaylist('mival1234', playlistId, chunk).then(() => {
+            queue.add(() => spotifyApi.addTracksToPlaylist(playlistId, chunk).then(() => {
               console.log('success added track chunk');
             }, e => {
               console.error('search error', e);
