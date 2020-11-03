@@ -11,13 +11,13 @@
   "license": "ISC",
   "repository": "https://github.com/mival/kissjsplaylist.git",
   "dependencies": {
-    "buffer": "^5.1.0",
-    "cheerio": "^1.0.0-rc.2",
-    "dotenv": "^5.0.0",
-    "express": "^4.16.2",
-    "node-fetch": "^2.0.0",
-    "p-queue": "^2.3.0",
-    "rsvp": "^4.8.1",
+    "buffer": "^5.7.0",
+    "cheerio": "^1.0.0-rc.3",
+    "dotenv": "^8.2.0",
+    "express": "^4.17.1",
+    "node-fetch": "^2.6.1",
+    "p-queue": "^6.6.2",
+    "rsvp": "^4.8.5",
     "spotify-web-api-node": "git+https://github.com/thelinmichael/spotify-web-api-node.git"
   }
 }
