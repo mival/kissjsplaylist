@@ -2,6 +2,7 @@ require('dotenv').config();
 const PORT = process.env.PORT || 5000;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
+const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:5000/spotify';
 
 const fetch = require('node-fetch');
 const RSVP = require('rsvp');
@@ -17,8 +18,7 @@ const scopes = ['playlist-modify-private'];
 const spotifyApi = new SpotifyWebApi({
   clientId : CLIENT_ID,
   clientSecret : CLIENT_SECRET,
-  // redirectUri : 'https://kissjc-playlist.herokuapp.com/spotify',
-  redirectUri : 'http://localhost:5000/spotify',
+  redirectUri : REDIRECT_URI
 });
 
 const search = item => {
