@@ -1,16 +1,19 @@
-require('dotenv').config();
+import dotenv from 'dotenv';
+import fetch from 'node-fetch';
+import cheerio from 'cheerio';
+import SpotifyWebApi from 'spotify-web-api-node';
+import PQueue from 'p-queue';
+import buffer from 'buffer';
+import express from 'express';
+
 const PORT = process.env.PORT || 5000;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:5000/spotify';
 
-const fetch = require('node-fetch');
-const RSVP = require('rsvp');
-const cheerio = require('cheerio');
-const SpotifyWebApi = require('spotify-web-api-node');
-const {default: PQueue} = require('p-queue');
+dotenv.config();
 
-global.Buffer = global.Buffer || require('buffer').Buffer;
+global.Buffer = global.Buffer || buffer.Buffer;
 const sanityRegex = /[&']/g;
 
 const scopes = ['playlist-modify-private'];
@@ -60,7 +63,6 @@ const chunks = (array, size) => {
   return results;
 };
 
-const express = require('express');
 const app = express();
 
 
@@ -152,19 +154,6 @@ app.get('/spotify', (req, res) => {
       console.error('playlist error', e);
       res.status(500).send(e);
     });
-
-
-      // RSVP.all(items.map(item => )).then(data => {
-
-      // }, e => {
-      //   console.error('search error', e);
-      //   res.status(500).send(e);
-      // });
-    // }, e => {
-    //   console.error('load error', e);
-    //   res.status(500).send(e);
-    // });
-
   }, e => {
     console.error('login error', e);
     res.status(500).send(e);

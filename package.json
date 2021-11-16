@@ -19,5 +19,6 @@
     "p-queue": "^7.1.0",
     "rsvp": "^4.8.5",
     "spotify-web-api-node": "^5.0.2"
-  }
+  },
+  "type": "module"
 }
