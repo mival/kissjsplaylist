@@ -124,7 +124,7 @@ app.get('/spotify', (req, res) => {
         const timeNow = new Date();
         const yesterday = new Date(timeNow.setDate(timeNow.getDate() - 1));
 
-        spotifyApi.createPlaylist(`KissJC ${yesterday.getFullYear()}-${yesterday.getMonth()+1}-${yesterday.getDate()}`, { 'public' : false }).then(data => {
+        spotifyApi.createPlaylist(`KissJC/KissJC ${yesterday.getFullYear()}-${yesterday.getMonth()+1}-${yesterday.getDate()}`, { 'public' : false }).then(data => {
           const playlistId = data.body.id;
           console.log('new playlist', playlistId);
           chunks(tracks, 50).forEach(chunk => {
