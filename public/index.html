@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rádio playlist</title>
+  <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4.1.11"></script>
+</head>
+<body class="min-h-screen flex flex-col bg-slate-50 text-slate-800">
+  <header class="bg-white border-b border-slate-200">
+    <div class="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+      <a href="/" class="text-lg font-semibold">Rádio playlist</a>
+      <nav class="text-sm text-slate-500">
+        <a href="/index.json" id="json-link" class="hover:text-slate-800">JSON</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-10">
+    <section class="mb-8">
+      <h1 class="text-3xl font-bold mb-2">Playlist z rádia na Spotify</h1>
+      <p class="text-slate-600">Vyberte stanici a datum. Ze skladeb, které stanice ten den hrála, vytvoříte soukromý playlist na Spotify.</p>
+    </section>
+
+    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      <form action="/login" method="get" class="flex flex-col md:flex-row gap-4 md:items-end">
+        <label class="flex-1 flex flex-col gap-1">
+          <span class="text-sm font-medium">Stanice</span>
+          <select name="type" class="rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
+            <option value="kiss" data-max-days-back="1">Kiss</option>
+            <option value="hitradio" data-max-days-back="2">Hitradio City</option>
+            <option value="evropa" data-max-days-back="7">Evropa 2</option>
+          </select>
+        </label>
+        <label class="flex flex-col gap-1">
+          <span class="text-sm font-medium">Datum</span>
+          <input type="date" name="date" required class="rounded-lg border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-green-500">
+        </label>
+        <button type="button" id="show-playlist" class="whitespace-nowrap rounded-lg border border-slate-300 bg-white px-5 py-2 font-medium hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2 disabled:opacity-50">
+          Zobrazit playlist
+        </button>
+        <button type="submit" class="whitespace-nowrap rounded-lg bg-green-600 px-5 py-2 font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+          Vytvořit playlist na Spotify
+        </button>
+      </form>
+    </section>
+
+    <section id="preview" class="mt-8">
+      <!-- Playlist preview goes here -->
+    </section>
+  </main>
+
+  <footer class="border-t border-slate-200 bg-white">
+    <div class="max-w-5xl mx-auto px-4 py-4 text-sm text-slate-500">
+      kissjsplaylist
+    </div>
+  </footer>
+
+  <script>
+    const form = document.querySelector('form');
+    const button = document.getElementById('show-playlist');
+    const preview = document.getElementById('preview');
+    const dateInput = form.elements.date;
+
+    const formatDate = (date) => {
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${date.getFullYear()}-${month}-${day}`;
+    };
+
+    const daysAgo = (days) => {
+      const date = new Date();
+      date.setDate(date.getDate() - days);
+      return formatDate(date);
+    };
+
+    // Each station keeps its playlist for a different number of days.
+    const updateDateRange = () => {
+      const maxDaysBack = Number(form.elements.type.selectedOptions[0].dataset.maxDaysBack);
+      dateInput.min = daysAgo(maxDaysBack);
+      dateInput.max = daysAgo(0);
+      if (!dateInput.value || dateInput.value < dateInput.min || dateInput.value > dateInput.max) {
+        dateInput.value = daysAgo(1);
+      }
+    };
+
+    const jsonLink = document.getElementById('json-link');
+
+    const updateJsonLink = () => {
+      const params = new URLSearchParams({ type: form.elements.type.value, date: dateInput.value });
+      jsonLink.href = `/index.json?${params}`;
+    };
+
+    form.elements.type.addEventListener('change', () => {
+      updateDateRange();
+      updateJsonLink();
+    });
+    dateInput.addEventListener('change', updateJsonLink);
+    updateDateRange();
+    updateJsonLink();
+
+    // Czech has three plural forms: 1 skladba, 2–4 skladby, 5+ skladeb.
+    const pluralRules = new Intl.PluralRules('cs');
+    const songWord = { one: 'skladba', few: 'skladby', other: 'skladeb' };
+
+    // The server sends error messages in English.
+    const translateError = (message) => {
+      if (message === 'unknown source') return 'neznámá stanice';
+      if (message === 'incorrect date') return 'neplatné datum';
+      if (message.startsWith('date not available')) return 'pro toto datum stanice playlist nemá';
+      return message;
+    };
+
+    const showMessage = (text) => {
+      const p = document.createElement('p');
+      p.className = 'text-slate-500';
+      p.textContent = text;
+      preview.replaceChildren(p);
+    };
+
+    const showTable = (items) => {
+      if (items.length === 0) {
+        showMessage('Pro toto datum nejsou žádné skladby.');
+        return;
+      }
+      const table = document.createElement('table');
+      table.className = 'w-full text-left text-sm';
+      table.innerHTML = `
+        <thead class="bg-slate-100 text-slate-600">
+          <tr>
+            <th class="px-4 py-2 font-medium">#</th>
+            <th class="px-4 py-2 font-medium">Čas</th>
+            <th class="px-4 py-2 font-medium">Interpret</th>
+            <th class="px-4 py-2 font-medium">Skladba</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 capitalize"></tbody>`;
+
+      const tbody = table.querySelector('tbody');
+      items.forEach((item) => {
+        const row = tbody.insertRow();
+        row.className = 'hover:bg-slate-50';
+        [item.index + 1, item.time, item.author, item.name].forEach((value) => {
+          const cell = row.insertCell();
+          cell.className = 'px-4 py-2';
+          cell.textContent = value;
+        });
+      });
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto';
+      wrapper.append(table);
+
+      const count = document.createElement('p');
+      count.className = 'mb-2 text-sm text-slate-500';
+      count.textContent = `${items.length} ${songWord[pluralRules.select(items.length)] || songWord.other}`;
+
+      preview.replaceChildren(count, wrapper);
+    };
+
+    button.addEventListener('click', async () => {
+      if (!form.reportValidity()) {
+        return;
+      }
+      const params = new URLSearchParams({ type: form.elements.type.value, date: dateInput.value });
+      button.disabled = true;
+      showMessage('Načítám playlist…');
+      try {
+        const response = await fetch(`/index.json?${params}`);
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || `HTTP ${response.status}`);
+        }
+        showTable(await response.json());
+      } catch (error) {
+        showMessage(`Playlist se nepodařilo načíst: ${translateError(error.message)}`);
+      } finally {
+        button.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

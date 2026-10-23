@@ -5,6 +5,9 @@ import SpotifyWebApi from 'spotify-web-api-node';
 import PQueue from 'p-queue';
 import buffer from 'buffer';
 import express from 'express';
+import cookieSession from 'cookie-session';
+import crypto from 'crypto';
+import { escapeHtml, layoutStart, layoutEnd, message } from './layout.js';
 
 dotenv.config();
 
@@ -12,19 +15,53 @@ const PORT = process.env.PORT || 5000;
 const CLIENT_ID = process.env.CLIENT_ID;
 const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:5000/spotify';
+const SESSION_SECRET = process.env.SESSION_SECRET;
 
 global.Buffer = global.Buffer || buffer.Buffer;
 const sanityRegex = /[&']/g;
 
 const scopes = ['playlist-modify-private'];
 
-const spotifyApi = new SpotifyWebApi({
+// Each request gets its own API object, so users do not share tokens.
+const createSpotifyApi = (session = {}) => new SpotifyWebApi({
   clientId: CLIENT_ID,
   clientSecret: CLIENT_SECRET,
-  redirectUri: REDIRECT_URI
+  redirectUri: REDIRECT_URI,
+  accessToken: session.accessToken,
+  refreshToken: session.refreshToken
 });
 
-const search = item => {
+const saveTokens = (session, body) => {
+  session.accessToken = body['access_token'];
+  if (body['refresh_token']) {
+    session.refreshToken = body['refresh_token'];
+  }
+  // Refresh the token 1 minute before it expires.
+  session.expiresAt = Date.now() + (body['expires_in'] - 60) * 1000;
+};
+
+// Returns an API object with a valid token, or null if the user must log in.
+const getSpotifyApi = req => {
+  const session = req.session;
+  if (!session.accessToken) {
+    return Promise.resolve(null);
+  }
+  const api = createSpotifyApi(session);
+  if (Date.now() < session.expiresAt) {
+    return Promise.resolve(api);
+  }
+  return api.refreshAccessToken().then(data => {
+    saveTokens(session, data.body);
+    api.setAccessToken(session.accessToken);
+    return api;
+  }, e => {
+    console.error('refresh token error', e);
+    req.session = null;
+    return null;
+  });
+};
+
+const search = (spotifyApi, item) => {
   return spotifyApi.searchTracks(`track:${item.name.replace(sanityRegex, '')} artist:${item.author.replace(sanityRegex, '')}`)
     .then(function (data) {
       const items = data.body.tracks.items;
@@ -37,9 +74,41 @@ const search = item => {
     });
 };
 
-const loadPlaylist = (source = "kiss") => {
+// Number of days back that each source can load. 0 is today.
+const maxDaysBack = {
+  kiss: 1,
+  hitradio: 2,
+  evropa: 7
+};
+
+const formatDate = date => {
+  return `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`;
+};
+
+const yesterday = () => {
+  const date = new Date();
+  date.setDate(date.getDate() - 1);
+  return formatDate(date);
+};
+
+const daysBack = date => {
+  return Math.round((Date.parse(formatDate(new Date())) - Date.parse(date)) / (24 * 60 * 60 * 1000));
+};
+
+const loadPlaylist = (source = "kiss", date = yesterday()) => {
+  if (!(source in maxDaysBack)) {
+    return Promise.reject('unknown source');
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) {
+    return Promise.reject('incorrect date');
+  }
+  const days = daysBack(date);
+  if (days < 0 || days > maxDaysBack[source]) {
+    return Promise.reject(`date not available for ${source}`);
+  }
+
   if (source === "hitradio") {
-    return fetch('https://hitradio.cz/playlist/hitradio-city_1/1').then(res => res.text())
+    return fetch(`https://hitradio.cz/playlist/hitradio-city_1/${days}`).then(res => res.text())
       .then(body => {
         const $ = cheerio.load(body);
         const data = [];
@@ -52,7 +121,7 @@ const loadPlaylist = (source = "kiss") => {
         return data;
       });
   } else if (source === "kiss") {
-    return fetch('https://www.kiss.cz/playlist/vcera.html').then(res => res.text())
+    return fetch(`https://www.kiss.cz/playlist/${days === 0 ? 'dnes' : 'vcera'}.html`).then(res => res.text())
       .then(body => {
         const $ = cheerio.load(body);
         // <span class="eventEvent pull-left"> <span>BOB SINCLAIR &amp; GARRY PINE</span> LOVE GENERATION </span>
@@ -65,12 +134,8 @@ const loadPlaylist = (source = "kiss") => {
         });
         return data;
       });
-  } else if (source === "evropa") {
-    const date = new Date();
-    // yesterday
-    date.setDate(date.getDate() - 1);
-
-    return fetch(`https://www.evropa2.cz/playlist?playDay=${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')}`).then(res => res.text())
+  } else {
+    return fetch(`https://www.evropa2.cz/playlist?playDay=${date}`).then(res => res.text())
       .then(body => {
         const $ = cheerio.load(body);
         const data = [];
@@ -84,13 +149,7 @@ const loadPlaylist = (source = "kiss") => {
         });
         return data;
       });
-  } else {
-    return Promise.reject('unknown source');
   }
-};
-
-const checkLogin = () => {
-  return !!spotifyApi.getAccessToken();
 };
 
 const chunks = (array, size) => {
@@ -103,43 +162,87 @@ const chunks = (array, size) => {
 
 const app = express();
 
+// A reverse proxy can end HTTPS. This lets Express see the request as secure.
+app.set('trust proxy', 1);
 
-app.get('/', (req, res) => {
+if (!SESSION_SECRET) {
+  console.warn('SESSION_SECRET is not set. Sessions end when the server stops.');
+}
+
+// The cookie has no maxAge, so the browser removes it at the end of the session.
+app.use(cookieSession({
+  name: 'session',
+  secret: SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
+  httpOnly: true,
+  sameSite: 'lax',
+  secure: process.env.NODE_ENV === 'production'
+}));
+
+app.use(express.static('public'));
+
+app.get('/index.json', (req, res) => {
   const type = req.query.type;
-  loadPlaylist(type).then(data => {
+  const date = req.query.date;
+  loadPlaylist(type, date).then(data => {
     console.log('count', data.length);
     res.status(200).json(data);
   }, e => {
-    res.status(500).render(e);
+    res.status(500).json({ error: String(e) });
   });
 });
 
 
+const playlistUrl = (type, date) => `/playlist?${new URLSearchParams({ type, date })}`;
+
 app.get('/login', (req, res) => {
   const type = req.query.type || 'kiss';
-  res.redirect(spotifyApi.createAuthorizeURL(scopes, type));
+  const date = req.query.date || yesterday();
+  getSpotifyApi(req).then(api => {
+    if (api) {
+      res.redirect(playlistUrl(type, date));
+      return;
+    }
+    // Spotify sends the state back to the callback unchanged.
+    // The library does not encode the state, so use only URL-safe characters.
+    const state = `${type}_${date}`;
+    res.redirect(createSpotifyApi().createAuthorizeURL(scopes, state));
+  });
+});
+
+app.get('/logout', (req, res) => {
+  req.session = null;
+  res.redirect('/');
 });
 
 app.get('/spotify', (req, res) => {
-  const token = req.query.code;
-  const type = req.query.state || 'kiss';
-  if (!checkLogin() && !token) {
-    res.redirect('/login');
+  const code = req.query.code;
+  const [type = 'kiss', date = yesterday()] = (req.query.state || '').split('_');
+  if (!code) {
+    res.redirect(`/login?${new URLSearchParams({ type, date })}`);
     return;
   }
 
-  spotifyApi.authorizationCodeGrant(token).then(data => {
+  createSpotifyApi().authorizationCodeGrant(code).then(data => {
     console.log('The token expires in ' + data.body['expires_in']);
-    console.log('The access token is ' + data.body['access_token']);
-    console.log('The refresh token is ' + data.body['refresh_token']);
+    saveTokens(req.session, data.body);
+    res.redirect(playlistUrl(type, date));
+  }, e => {
+    console.error('login error', e);
+    sendError(res, e);
+  });
+});
 
-    // Set the access token on the API object to use it in later calls
-    spotifyApi.setAccessToken(data.body['access_token']);
-    spotifyApi.setRefreshToken(data.body['refresh_token']);
+app.get('/playlist', (req, res) => {
+  const type = req.query.type || 'kiss';
+  const date = req.query.date || yesterday();
 
+  getSpotifyApi(req).then(spotifyApi => {
+    if (!spotifyApi) {
+      res.redirect(`/login?${new URLSearchParams({ type, date })}`);
+      return;
+    }
 
-
-    loadPlaylist(type).then(items => {
+    loadPlaylist(type, date).then(items => {
       console.log('search count', items.length);
       let namePrefix = 'KissJC';
 
@@ -152,64 +255,90 @@ app.get('/spotify', (req, res) => {
           break;
       }
 
+      // Keep the old name format without leading zeros, for example "KissJC 2026-6-5".
+      const playlistDate = date.split('-').map(Number).join('-');
+      const playlistName = `${namePrefix} ${playlistDate}`;
+
       const trackIds = [];
       const queue = new PQueue({ concurrency: 1 });
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
-      res.write('<table><thead><tr><th>Artist</th><th>Name</th><tr></thead><tbody>');
+      res.write(layoutStart(playlistName));
+      res.write(message(`Hledám skladby na Spotify (počet: ${items.length}) a vytvářím playlist <strong>${escapeHtml(playlistName)}</strong>…`));
+      res.write(`<div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto">
+      <table class="w-full text-left text-sm">
+        <thead class="bg-slate-100 text-slate-600">
+          <tr>
+            <th class="px-4 py-2 font-medium">Čas</th>
+            <th class="px-4 py-2 font-medium">Interpret</th>
+            <th class="px-4 py-2 font-medium">Skladba</th>
+            <th class="px-4 py-2 font-medium">Spotify</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">`);
+      res.locals.tableOpen = true;
       items.forEach(item => {
         console.log('processing', item);
         queue.add(() => {
-          return search(item).then(trackItem => {
-            trackIds.push(trackItem.uri);
+          return search(spotifyApi, item).then(trackItem => {
             console.log('completed', item);
-            res.write(`<tr><td>${item.author}</td><td>${item.name}</td></tr>`);
+            if (trackItem.uri) {
+              trackIds.push(trackItem.uri);
+            }
+            const found = trackItem.trackUrl
+              ? `<a href="${escapeHtml(trackItem.trackUrl)}" class="text-green-700 hover:underline">nalezeno</a>`
+              : '<span class="text-slate-400">nenalezeno</span>';
+            res.write(`<tr class="hover:bg-slate-50"><td class="px-4 py-2">${escapeHtml(item.time)}</td><td class="px-4 py-2 capitalize">${escapeHtml(item.author)}</td><td class="px-4 py-2 capitalize">${escapeHtml(item.name)}</td><td class="px-4 py-2">${found}</td></tr>`);
           }, e => {
+            // One failed search does not stop the playlist.
             console.error('queue item error', e);
-            res.status(500).send(e);
+            res.write(`<tr><td class="px-4 py-2">${escapeHtml(item.time)}</td><td class="px-4 py-2 capitalize">${escapeHtml(item.author)}</td><td class="px-4 py-2 capitalize">${escapeHtml(item.name)}</td><td class="px-4 py-2 text-red-700">chyba</td></tr>`);
           });
         });
       });
-      queue.onIdle().then(() => {
+
+      return queue.onIdle().then(() => {
         console.log('All work is done');
-        const tracks = trackIds.filter(function (n) { return n != undefined });
-        const queue = new PQueue({ concurrency: 1 });
-        const timeNow = new Date();
-        const yesterday = new Date(timeNow.setDate(timeNow.getDate() - 1));
-
-        spotifyApi.createPlaylist(`${namePrefix} ${yesterday.getFullYear()}-${yesterday.getMonth() + 1}-${yesterday.getDate()}`, { 'public': false }).then(data => {
-          const playlistId = data.body.id;
-          console.log('new playlist', playlistId);
-          chunks(tracks, 50).forEach(chunk => {
-            queue.add(() => spotifyApi.addTracksToPlaylist(playlistId, chunk).then(() => {
-              console.log('success added track chunk');
-            }, e => {
-              console.error('search error', e);
-              res.status(500).send(e);
-            }));
-          });
+        res.write('</tbody></table></div>');
+        res.locals.tableOpen = false;
+        return spotifyApi.createPlaylist(playlistName, { 'public': false });
+      }).then(data => {
+        const playlistId = data.body.id;
+        const playlistUrl = data.body.external_urls.spotify;
+        console.log('new playlist', playlistId);
+        const addQueue = new PQueue({ concurrency: 1 });
+        chunks([...trackIds], 50).forEach(chunk => {
+          addQueue.add(() => spotifyApi.addTracksToPlaylist(playlistId, chunk).then(() => {
+            console.log('success added track chunk');
+          }));
         });
-
-        queue.onIdle().then(() => {
-          console.log('success');
-          res.write('</tbody></table>');
-          res.end();
-        }, e => {
-          console.error('queue error', e);
-          res.status(500).send(e);
-        });
-
-      }, e => {
-        console.error('queue error', e);
-        res.status(500).send(e);
+        return addQueue.onIdle().then(() => playlistUrl);
+      }).then(playlistUrl => {
+        console.log('success');
+        res.write(`<div class="mt-6">${message(`Hotovo. Playlist <strong>${escapeHtml(playlistName)}</strong> je vytvořený. Nalezené skladby: ${trackIds.length} z ${items.length}. <a href="${escapeHtml(playlistUrl)}" class="font-medium underline">Otevřít na Spotify</a>`, 'success')}</div>`);
+        res.write('<p class="text-sm"><a href="/" class="text-green-700 hover:underline">Zpět na úvodní stránku</a> · <a href="/logout" class="text-slate-500 hover:underline">Odhlásit ze Spotify</a></p>');
+        res.write(layoutEnd());
+        res.end();
       });
-    }, e => {
+    }).catch(e => {
       console.error('playlist error', e);
-      res.status(500).send(e);
+      sendError(res, e);
     });
-  }, e => {
-    console.error('login error', e);
-    res.status(500).send(e);
   });
 });
+
+// Show the error in the page layout. If the page is already streaming, add the error to its end.
+const sendError = (res, e) => {
+  const text = `Playlist se nepodařilo vytvořit: ${escapeHtml(e && e.message ? e.message : e)}`;
+  if (!res.headersSent) {
+    res.status(500).setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.write(layoutStart('Chyba'));
+  } else if (res.locals.tableOpen) {
+    res.write('</tbody></table></div>');
+  }
+  res.write(`<div class="mt-6">${message(text, 'error')}</div>`);
+  res.write(`<a href="/" class="text-green-700 hover:underline">Zpět na úvodní stránku</a>`);
+  res.write(layoutEnd());
+  res.end();
+};
 
 app.listen(PORT, () => console.log(`Listening on port ${PORT}!`));
