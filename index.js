@@ -1,15 +1,13 @@
 import dotenv from 'dotenv';
-import fetch from 'node-fetch';
-import cheerio from 'cheerio';
+import * as cheerio from 'cheerio';
 import SpotifyWebApi from 'spotify-web-api-node';
 import PQueue from 'p-queue';
-import buffer from 'buffer';
 import express from 'express';
 import cookieSession from 'cookie-session';
 import crypto from 'crypto';
 import { escapeHtml, layoutStart, layoutEnd, message } from './layout.js';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const PORT = process.env.PORT || 5000;
 const CLIENT_ID = process.env.CLIENT_ID;
@@ -17,7 +15,6 @@ const CLIENT_SECRET = process.env.CLIENT_SECRET;
 const REDIRECT_URI = process.env.REDIRECT_URI || 'http://localhost:5000/spotify';
 const SESSION_SECRET = process.env.SESSION_SECRET;
 
-global.Buffer = global.Buffer || buffer.Buffer;
 const sanityRegex = /[&']/g;
 
 const scopes = ['playlist-modify-private'];
